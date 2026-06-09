@@ -1,8 +1,30 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { VikunjaClient } from '../client.js';
-import { formatTaskSummary } from '../ticket-utils.js';
+import { buildUpdateVerification, formatTaskSummary } from '../ticket-utils.js';
 import type { VikunjaTask } from '../types.js';
+
+const ticketIdSchema = z.string().describe('Ticket id in echo-N format, e.g. echo-3 or ECHO-3');
+
+const updateTaskFieldsSchema = {
+  title: z.string().optional().describe('New title'),
+  description: z.string().optional().describe('New description'),
+  done: z.boolean().optional().describe('Mark as done/undone'),
+  priority: z.number().optional().describe('Priority: 0=none, 1=low, 2=medium, 3=high, 4=urgent'),
+  due_date: z.string().optional().describe('Due date in ISO format'),
+  hex_color: z.string().optional().describe('Hex color code'),
+};
+
+type UpdateTaskFields = {
+  title?: string;
+  description?: string;
+  done?: boolean;
+  priority?: number;
+  due_date?: string;
+  hex_color?: string;
+};
+
+type ToolContent = { content: Array<{ type: 'text'; text: string }> };
 
 function formatTask(t: VikunjaTask): string {
   const status = t.done ? '[x]' : '[ ]';
@@ -13,6 +35,40 @@ function formatTask(t: VikunjaTask): string {
   return `${status} ${identifier}#${t.id} ${t.title}${priority}${due}${labels}`;
 }
 
+function ticketLookupError(error: string): ToolContent {
+  return { content: [{ type: 'text', text: error }] };
+}
+
+function updateVerificationResponse(task: VikunjaTask, previousDescriptionLength?: number): ToolContent {
+  const verification = buildUpdateVerification(task, previousDescriptionLength);
+  return {
+    content: [{ type: 'text', text: JSON.stringify(verification, null, 2) }],
+  };
+}
+
+async function performTaskUpdate(
+  client: VikunjaClient,
+  id: number,
+  data: UpdateTaskFields,
+): Promise<ToolContent> {
+  let previousDescriptionLength: number | undefined;
+  if (data.description !== undefined) {
+    const prior = await client.getTask(id);
+    previousDescriptionLength = (prior.description ?? '').length;
+  }
+
+  const task = await client.updateTask(id, data);
+  return updateVerificationResponse(task, previousDescriptionLength);
+}
+
+async function resolveTaskIdByTicketId(client: VikunjaClient, ticketId: string): Promise<number | ToolContent> {
+  const resolved = await client.resolveSingleTaskByTicketId(ticketId);
+  if (!resolved.ok) {
+    return ticketLookupError(resolved.error);
+  }
+  return resolved.task.id;
+}
+
 export function taskTools(server: McpServer, client: VikunjaClient): void {
   server.registerTool('vikunja_get_task_by_ticket_id', {
     description:
@@ -21,29 +77,16 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
       'Returns blocker status via blockers, all_blockers_complete, and is_blocked fields. ' +
       'Use this for branch, plan, and implement workflows instead of search or numeric task id guessing.',
     inputSchema: {
-      ticket_id: z.string().describe('Ticket id in echo-N format, e.g. echo-3 or ECHO-3'),
+      ticket_id: ticketIdSchema,
     },
   }, async ({ ticket_id }) => {
-    const matches = await client.findTasksByTicketId(ticket_id);
-
-    if (!matches.length) {
-      return { content: [{ type: 'text', text: `No task found for ticket id "${ticket_id}".` }] };
+    const resolved = await client.resolveSingleTaskByTicketId(ticket_id);
+    if (!resolved.ok) {
+      return ticketLookupError(resolved.error);
     }
-
-    if (matches.length > 1) {
-      const lines = matches.map((task) => `${task.identifier} #${task.id} ${task.title}`).join('\n');
-      return {
-        content: [{
-          type: 'text',
-          text: `Multiple tasks matched ticket id "${ticket_id}":\n${lines}`,
-        }],
-      };
-    }
-
-    const task = await client.getTask(matches[0].id);
 
     return {
-      content: [{ type: 'text', text: JSON.stringify(formatTaskSummary(task), null, 2) }],
+      content: [{ type: 'text', text: JSON.stringify(formatTaskSummary(resolved.task), null, 2) }],
     };
   });
 
@@ -126,37 +169,60 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
   });
 
   server.registerTool('vikunja_update_task', {
-    description: 'Update an existing task',
+    description:
+      'Update an existing task by numeric Vikunja task id. ' +
+      'Returns verification metadata (id, title, description_length, updated_at) and warns if the description shrinks substantially.',
     inputSchema: {
       id: z.number().describe('Task ID'),
-      title: z.string().optional().describe('New title'),
-      description: z.string().optional().describe('New description'),
-      done: z.boolean().optional().describe('Mark as done/undone'),
-      priority: z.number().optional().describe('Priority: 0=none, 1=low, 2=medium, 3=high, 4=urgent'),
-      due_date: z.string().optional().describe('Due date in ISO format'),
-      hex_color: z.string().optional().describe('Hex color code'),
+      ...updateTaskFieldsSchema,
     },
-  }, async ({ id, ...data }) => {
-    const task = await client.updateTask(id, data);
-    return {
-      content: [{ type: 'text', text: `Updated task [${task.id}] "${task.title}"` }],
-    };
+  }, async ({ id, ...data }) => performTaskUpdate(client, id, data));
+
+  server.registerTool('vikunja_update_task_by_ticket_id', {
+    description:
+      'Update a Project Echo ticket by its echo-N identifier (e.g. echo-3 or ECHO-3). ' +
+      'Preferred over vikunja_update_task when you only know the ticket id. ' +
+      'Returns verification metadata (id, title, description_length, updated_at) and warns if the description shrinks substantially.',
+    inputSchema: {
+      ticket_id: ticketIdSchema,
+      ...updateTaskFieldsSchema,
+    },
+  }, async ({ ticket_id, ...data }) => {
+    const resolved = await resolveTaskIdByTicketId(client, ticket_id);
+    if (typeof resolved !== 'number') {
+      return resolved;
+    }
+    return performTaskUpdate(client, resolved, data);
   });
 
   server.registerTool('vikunja_complete_task', {
-    description: 'Mark a task as completed',
+    description: 'Mark a task as completed by numeric Vikunja task id',
     inputSchema: {
       id: z.number().describe('Task ID to complete'),
     },
   }, async ({ id }) => {
     const task = await client.updateTask(id, { done: true });
-    return {
-      content: [{ type: 'text', text: `Completed task [${task.id}] "${task.title}"` }],
-    };
+    return updateVerificationResponse(task);
+  });
+
+  server.registerTool('vikunja_complete_task_by_ticket_id', {
+    description:
+      'Mark a Project Echo ticket as completed by its echo-N identifier (e.g. echo-3 or ECHO-3). ' +
+      'Preferred over vikunja_complete_task when you only know the ticket id.',
+    inputSchema: {
+      ticket_id: ticketIdSchema,
+    },
+  }, async ({ ticket_id }) => {
+    const resolved = await resolveTaskIdByTicketId(client, ticket_id);
+    if (typeof resolved !== 'number') {
+      return resolved;
+    }
+    const task = await client.updateTask(resolved, { done: true });
+    return updateVerificationResponse(task);
   });
 
   server.registerTool('vikunja_delete_task', {
-    description: 'Delete a task',
+    description: 'Delete a task by numeric Vikunja task id',
     inputSchema: {
       id: z.number().describe('Task ID to delete'),
     },
@@ -164,6 +230,24 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
     await client.deleteTask(id);
     return {
       content: [{ type: 'text', text: `Deleted task #${id}` }],
+    };
+  });
+
+  server.registerTool('vikunja_delete_task_by_ticket_id', {
+    description:
+      'Delete a Project Echo ticket by its echo-N identifier (e.g. echo-3 or ECHO-3). ' +
+      'Preferred over vikunja_delete_task when you only know the ticket id.',
+    inputSchema: {
+      ticket_id: ticketIdSchema,
+    },
+  }, async ({ ticket_id }) => {
+    const resolved = await resolveTaskIdByTicketId(client, ticket_id);
+    if (typeof resolved !== 'number') {
+      return resolved;
+    }
+    await client.deleteTask(resolved);
+    return {
+      content: [{ type: 'text', text: `Deleted task for ticket id "${ticket_id}" (#${resolved})` }],
     };
   });
 

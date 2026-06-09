@@ -11,7 +11,8 @@
     "build": "node build.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "lint": "tsc --noEmit --skipLibCheck"
+    "lint": "tsc --noEmit --skipLibCheck",
+    "test": "tsx --test tests/ticket-utils.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",

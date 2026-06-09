@@ -48,7 +48,7 @@ Or run from a local clone:
 }
 ```
 
-## Tools (17)
+## Tools (22)
 
 ### Projects
 - **vikunja_list_projects** — List all projects
@@ -62,16 +62,21 @@ Or run from a local clone:
 - **vikunja_list_project_tasks** — List tasks in a specific project
 - **vikunja_get_task** — Get full task details by numeric Vikunja task id
 - **vikunja_create_task** — Create a task in a project
-- **vikunja_update_task** — Update task fields
-- **vikunja_complete_task** — Mark a task as done
-- **vikunja_delete_task** — Delete a task
+- **vikunja_update_task** — Update task fields by numeric id; returns verification metadata and warns on substantial description shrink
+- **vikunja_update_task_by_ticket_id** — Update task fields by `echo-N` ticket id (preferred when numeric id is unknown)
+- **vikunja_complete_task** — Mark a task as done by numeric id
+- **vikunja_complete_task_by_ticket_id** — Mark a task as done by `echo-N` ticket id
+- **vikunja_delete_task** — Delete a task by numeric id
+- **vikunja_delete_task_by_ticket_id** — Delete a task by `echo-N` ticket id
 - **vikunja_bulk_create_tasks** — Create multiple tasks at once
 
 ### Labels
 - **vikunja_list_labels** — List all labels
 - **vikunja_create_label** — Create a label with optional color
-- **vikunja_add_label_to_task** — Assign a label to a task
-- **vikunja_remove_label_from_task** — Remove a label from a task
+- **vikunja_add_label_to_task** — Assign a label to a task by numeric id
+- **vikunja_add_label_to_task_by_ticket_id** — Assign a label to a task by `echo-N` ticket id
+- **vikunja_remove_label_from_task** — Remove a label from a task by numeric id
+- **vikunja_remove_label_from_task_by_ticket_id** — Remove a label from a task by `echo-N` ticket id
 
 ## Build from Source
 

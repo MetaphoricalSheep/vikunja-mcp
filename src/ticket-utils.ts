@@ -71,3 +71,52 @@ export function formatTaskSummary(task: VikunjaTask): Record<string, unknown> {
     is_blocked: blockerStatus.is_blocked,
   };
 }
+
+export interface UpdateVerification {
+  id: number;
+  title: string;
+  description_length: number;
+  updated_at: string;
+  previous_description_length?: number;
+  warning?: string;
+}
+
+const SHRINK_RATIO = 0.5;
+const MIN_PREVIOUS_LENGTH_FOR_WARNING = 100;
+
+export function descriptionShrinkWarning(previous: number, current: number): string | undefined {
+  if (previous < MIN_PREVIOUS_LENGTH_FOR_WARNING) {
+    return undefined;
+  }
+  if (current >= previous * SHRINK_RATIO) {
+    return undefined;
+  }
+  const reductionPercent = Math.round((1 - current / previous) * 100);
+  return (
+    `Description length dropped from ${previous} to ${current} characters ` +
+    `(${reductionPercent}% reduction). Verify the update was intentional.`
+  );
+}
+
+export function buildUpdateVerification(
+  task: VikunjaTask,
+  previousDescriptionLength?: number,
+): UpdateVerification {
+  const descriptionLength = (task.description ?? '').length;
+  const verification: UpdateVerification = {
+    id: task.id,
+    title: task.title,
+    description_length: descriptionLength,
+    updated_at: task.updated,
+  };
+
+  if (previousDescriptionLength !== undefined) {
+    verification.previous_description_length = previousDescriptionLength;
+    const warning = descriptionShrinkWarning(previousDescriptionLength, descriptionLength);
+    if (warning) {
+      verification.warning = warning;
+    }
+  }
+
+  return verification;
+}

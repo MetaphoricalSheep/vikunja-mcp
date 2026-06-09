@@ -111,6 +111,27 @@ export class VikunjaClient {
     });
   }
 
+  async resolveSingleTaskByTicketId(
+    ticketId: string,
+  ): Promise<{ ok: true; task: VikunjaTask } | { ok: false; error: string }> {
+    const matches = await this.findTasksByTicketId(ticketId);
+
+    if (!matches.length) {
+      return { ok: false, error: `No task found for ticket id "${ticketId}".` };
+    }
+
+    if (matches.length > 1) {
+      const lines = matches.map((task) => `${task.identifier} #${task.id} ${task.title}`).join('\n');
+      return {
+        ok: false,
+        error: `Multiple tasks matched ticket id "${ticketId}":\n${lines}`,
+      };
+    }
+
+    const task = await this.getTask(matches[0].id);
+    return { ok: true, task };
+  }
+
   async createTask(projectId: number, data: { title: string; description?: string; done?: boolean; priority?: number; due_date?: string; hex_color?: string }): Promise<VikunjaTask> {
     return this.request<VikunjaTask>('PUT', `/projects/${projectId}/tasks`, data);
   }
