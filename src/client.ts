@@ -1,18 +1,28 @@
+import { normalizeTicketId, taskMatchesTicketId } from './ticket-utils.js';
 import type { VikunjaProject, VikunjaTask, VikunjaLabel, VikunjaView } from './types.js';
 
 export class VikunjaClient {
   private baseUrl: string;
   private token: string;
+  readonly projectId?: number;
 
   constructor() {
     const url = process.env.VIKUNJA_URL;
     const token = process.env.VIKUNJA_API_TOKEN;
+    const projectId = process.env.VIKUNJA_PROJECT_ID;
 
     if (!url) throw new Error('VIKUNJA_URL environment variable is required');
     if (!token) throw new Error('VIKUNJA_API_TOKEN environment variable is required');
 
     this.baseUrl = url.replace(/\/$/, '') + '/api/v1';
     this.token = token;
+    if (projectId) {
+      const parsed = Number.parseInt(projectId, 10);
+      if (!Number.isFinite(parsed)) {
+        throw new Error('VIKUNJA_PROJECT_ID must be a positive integer when set');
+      }
+      this.projectId = parsed;
+    }
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -88,6 +98,17 @@ export class VikunjaClient {
 
   async getTask(id: number): Promise<VikunjaTask> {
     return this.request<VikunjaTask>('GET', `/tasks/${id}`);
+  }
+
+  async findTasksByTicketId(ticketId: string, params?: { per_page?: number }): Promise<VikunjaTask[]> {
+    const normalizedTicketId = normalizeTicketId(ticketId);
+    const tasks = await this.listTasks({ per_page: params?.per_page ?? 100 });
+    return tasks.filter((task) => {
+      if (this.projectId !== undefined && task.project_id !== this.projectId) {
+        return false;
+      }
+      return taskMatchesTicketId(task, normalizedTicketId);
+    });
   }
 
   async createTask(projectId: number, data: { title: string; description?: string; done?: boolean; priority?: number; due_date?: string; hex_color?: string }): Promise<VikunjaTask> {

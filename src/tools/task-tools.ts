@@ -1,23 +1,58 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { VikunjaClient } from '../client.js';
+import { formatTaskSummary } from '../ticket-utils.js';
 import type { VikunjaTask } from '../types.js';
 
 function formatTask(t: VikunjaTask): string {
   const status = t.done ? '[x]' : '[ ]';
+  const identifier = t.identifier ? `${t.identifier} ` : '';
   const priority = t.priority > 0 ? ` P${t.priority}` : '';
   const due = t.due_date && !t.due_date.startsWith('0001') ? ` due:${t.due_date.split('T')[0]}` : '';
   const labels = t.labels?.length ? ` [${t.labels.map(l => l.title).join(', ')}]` : '';
-  return `${status} #${t.id} ${t.title}${priority}${due}${labels}`;
+  return `${status} ${identifier}#${t.id} ${t.title}${priority}${due}${labels}`;
 }
 
 export function taskTools(server: McpServer, client: VikunjaClient): void {
+  server.registerTool('vikunja_get_task_by_ticket_id', {
+    description:
+      'Get a Project Echo ticket by its echo-N identifier (e.g. echo-3 or ECHO-3). ' +
+      'Matches the Vikunja task identifier field exactly, case-insensitively. ' +
+      'Use this for branch, plan, and implement workflows instead of search or numeric task id guessing.',
+    inputSchema: {
+      ticket_id: z.string().describe('Ticket id in echo-N format, e.g. echo-3 or ECHO-3'),
+    },
+  }, async ({ ticket_id }) => {
+    const matches = await client.findTasksByTicketId(ticket_id);
+
+    if (!matches.length) {
+      return { content: [{ type: 'text', text: `No task found for ticket id "${ticket_id}".` }] };
+    }
+
+    if (matches.length > 1) {
+      const lines = matches.map((task) => `${task.identifier} #${task.id} ${task.title}`).join('\n');
+      return {
+        content: [{
+          type: 'text',
+          text: `Multiple tasks matched ticket id "${ticket_id}":\n${lines}`,
+        }],
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify(formatTaskSummary(matches[0]), null, 2) }],
+    };
+  });
+
   server.registerTool('vikunja_list_tasks', {
-    description: 'List all tasks across all projects. Supports search and filtering.',
+    description:
+      'List all tasks across all projects. Supports filtering and sorting. ' +
+      'Do not use the s search parameter for Project Echo ticket lookup; it matches descriptions and can return the wrong task. ' +
+      'Use vikunja_get_task_by_ticket_id for echo-N lookups.',
     inputSchema: {
       page: z.number().optional().describe('Page number (default: 1)'),
       per_page: z.number().optional().describe('Tasks per page (default: 50)'),
-      s: z.string().optional().describe('Search query string'),
+      s: z.string().optional().describe('Full-text search query. Avoid for echo-N ticket lookup.'),
       sort_by: z.string().optional().describe('Sort field (e.g., "due_date", "created", "priority")'),
       order_by: z.string().optional().describe('Sort order: "asc" or "desc"'),
       filter: z.string().optional().describe('Vikunja filter string (e.g., "done = false")'),
@@ -33,7 +68,9 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
   });
 
   server.registerTool('vikunja_list_project_tasks', {
-    description: 'List tasks within a specific project',
+    description:
+      'List tasks within a specific project. The default project view may hide completed tasks. ' +
+      'For echo-N ticket lookup, use vikunja_get_task_by_ticket_id instead.',
     inputSchema: {
       project_id: z.number().describe('Project ID'),
       page: z.number().optional().describe('Page number'),
@@ -41,7 +78,6 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
       filter: z.string().optional().describe('Vikunja filter string'),
     },
   }, async ({ project_id, ...params }) => {
-    // Get the first view for this project
     const views = await client.getProjectViews(project_id);
     if (!views.length) return { content: [{ type: 'text', text: 'Project has no views.' }] };
 
@@ -55,9 +91,11 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
   });
 
   server.registerTool('vikunja_get_task', {
-    description: 'Get detailed information about a specific task',
+    description:
+      'Get detailed information about a specific task by numeric Vikunja task id. ' +
+      'The echo-N ticket number is not the numeric task id; use vikunja_get_task_by_ticket_id for echo-N lookups.',
     inputSchema: {
-      id: z.number().describe('Task ID'),
+      id: z.number().describe('Numeric Vikunja task ID'),
     },
   }, async ({ id }) => {
     const task = await client.getTask(id);

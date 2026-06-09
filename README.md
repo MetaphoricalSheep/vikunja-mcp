@@ -10,6 +10,7 @@ MCP server for [Vikunja](https://vikunja.io), the open-source task management ap
 |----------|----------|-------------|
 | `VIKUNJA_URL` | Yes | Your Vikunja instance URL (e.g., `https://vikunja.example.com`) |
 | `VIKUNJA_API_TOKEN` | Yes | API token from Vikunja Settings > API Tokens |
+| `VIKUNJA_PROJECT_ID` | No | Optional project id to scope echo-N ticket lookup (e.g., `2` for Project Echo) |
 
 ### Claude Code Configuration
 
@@ -47,7 +48,7 @@ Or run from a local clone:
 }
 ```
 
-## Tools (16)
+## Tools (17)
 
 ### Projects
 - **vikunja_list_projects** — List all projects
@@ -56,9 +57,10 @@ Or run from a local clone:
 - **vikunja_delete_project** — Delete a project and all its tasks
 
 ### Tasks
-- **vikunja_list_tasks** — List tasks across all projects (search, filter, sort, paginate)
+- **vikunja_get_task_by_ticket_id** — Get a Project Echo ticket by `echo-N` identifier (preferred for branch/plan/implement workflows)
+- **vikunja_list_tasks** — List tasks across all projects (filter, sort, paginate; avoid `s` search for echo-N lookup)
 - **vikunja_list_project_tasks** — List tasks in a specific project
-- **vikunja_get_task** — Get full task details
+- **vikunja_get_task** — Get full task details by numeric Vikunja task id
 - **vikunja_create_task** — Create a task in a project
 - **vikunja_update_task** — Update task fields
 - **vikunja_complete_task** — Mark a task as done
