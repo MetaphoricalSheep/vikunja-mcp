@@ -18,6 +18,7 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
     description:
       'Get a Project Echo ticket by its echo-N identifier (e.g. echo-3 or ECHO-3). ' +
       'Matches the Vikunja task identifier field exactly, case-insensitively. ' +
+      'Returns blocker status via blockers, all_blockers_complete, and is_blocked fields. ' +
       'Use this for branch, plan, and implement workflows instead of search or numeric task id guessing.',
     inputSchema: {
       ticket_id: z.string().describe('Ticket id in echo-N format, e.g. echo-3 or ECHO-3'),
@@ -39,8 +40,10 @@ export function taskTools(server: McpServer, client: VikunjaClient): void {
       };
     }
 
+    const task = await client.getTask(matches[0].id);
+
     return {
-      content: [{ type: 'text', text: JSON.stringify(formatTaskSummary(matches[0]), null, 2) }],
+      content: [{ type: 'text', text: JSON.stringify(formatTaskSummary(task), null, 2) }],
     };
   });
 
